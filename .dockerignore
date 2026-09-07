@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.git/
+.gitignore
+.env
+.env.*
+!.env.docker
+.streamlit/secrets.toml
+.pytest_cache/
+.vscode/
+.idea/
+*.log
