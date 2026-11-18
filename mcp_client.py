@@ -26,7 +26,7 @@ client = MultiServerMCPClient(
                 str(BASE_DIR / "aviation_mcp_server.py")
             ],
             "env": {
-                "AVIATION_STACK_API_KEY": AVIATION_STACK_API_KEY,
+                "AVIATION_STACK_API_KEY": AVIATION_STACK_API_KEY or "",
             },
         },
 
@@ -37,7 +37,7 @@ client = MultiServerMCPClient(
                 str(BASE_DIR / "weather_mcp_server.py")
             ],
             "env": {
-                "OPENWEATHER_API_KEY": OPENWEATHER_API_KEY,
+                "OPENWEATHER_API_KEY": OPENWEATHER_API_KEY or "",
             },
         },
     }

@@ -189,8 +189,47 @@ def build_graph():
             checkpointer=checkpointer
         )
 
-    # Fallback if DATABASE_URL is not configured
-    return graph.compile()
+    # Fallback to persistent disk-backed checkpointer when DATABASE_URL is not set
+    import os
+    import pickle
+    from collections import defaultdict
+    from langgraph.checkpoint.memory import MemorySaver
+
+    class DiskMemorySaver(MemorySaver):
+        def __init__(self, filepath=".langgraph_checkpoints.pkl"):
+            super().__init__()
+            self.filepath = filepath
+            if os.path.exists(filepath):
+                try:
+                    with open(filepath, "rb") as f:
+                        data = pickle.load(f)
+                        self.storage = defaultdict(lambda: defaultdict(dict), data.get("storage", {}))
+                        self.writes = defaultdict(dict, data.get("writes", {}))
+                        self.blobs = defaultdict(dict, data.get("blobs", {}))
+                except Exception as e:
+                    print(f"[Checkpointer]: Could not restore {filepath}: {e}")
+
+        def _save_to_disk(self):
+            try:
+                with open(self.filepath, "wb") as f:
+                    pickle.dump({
+                        "storage": dict(self.storage),
+                        "writes": dict(self.writes),
+                        "blobs": dict(self.blobs),
+                    }, f)
+            except Exception as e:
+                print(f"[Checkpointer]: Could not write {self.filepath}: {e}")
+
+        def put(self, config, checkpoint, metadata, new_versions):
+            res = super().put(config, checkpoint, metadata, new_versions)
+            self._save_to_disk()
+            return res
+
+        def put_writes(self, config, writes, task_id, task_path=""):
+            super().put_writes(config, writes, task_id, task_path)
+            self._save_to_disk()
+
+    return graph.compile(checkpointer=DiskMemorySaver())
 
 
 # =========================

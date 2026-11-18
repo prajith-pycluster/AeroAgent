@@ -54,30 +54,37 @@ def get_forecast(city: str):
         "units": "metric"
     }
 
-    response = requests.get(
-        url,
-        params=params
-    )
-
-    data = response.json()
-
-    forecast = []
-
-    # Return first 5 forecast entries
-    for item in data["list"][:5]:
-
-        forecast.append(
-            {
-                "datetime": item["dt_txt"],
-                "temperature": item["main"]["temp"],
-                "weather": item["weather"][0]["description"]
-            }
+    try:
+        response = requests.get(
+            url,
+            params=params,
+            timeout=10,
         )
 
-    return {
-        "city": city,
-        "forecast": forecast
-    }
+        data = response.json()
+
+        if response.status_code != 200 or "list" not in data:
+            return data
+
+        forecast = []
+
+        # Return first 5 forecast entries
+        for item in data.get("list", [])[:5]:
+
+            forecast.append(
+                {
+                    "datetime": item.get("dt_txt", ""),
+                    "temperature": item.get("main", {}).get("temp"),
+                    "weather": item.get("weather", [{}])[0].get("description", "")
+                }
+            )
+
+        return {
+            "city": city,
+            "forecast": forecast
+        }
+    except Exception as e:
+        return {"error": str(e), "city": city}
 
 
 

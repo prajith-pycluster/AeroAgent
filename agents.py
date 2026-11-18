@@ -1,5 +1,7 @@
 import asyncio
 import json
+import os
+import re
 from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -17,24 +19,58 @@ from state import TravelState
 
 
 # ============================================================
-# LLM
+# LLM & HELPERS
 # ============================================================
 
 llm = get_llm()
 
 
-# ============================================================
-# HELPERS
-# ============================================================
-
 def _llm_text(system: str, prompt: str) -> str:
-    response = llm.invoke(
-        [
-            SystemMessage(content=system),
-            HumanMessage(content=prompt),
-        ]
-    )
-    return response.content
+    messages = [
+        SystemMessage(content=system),
+        HumanMessage(content=prompt),
+    ]
+
+    # 1. Try primary LLM
+    try:
+        active_llm = get_llm()
+        response = active_llm.invoke(messages)
+        return response.content
+    except Exception as e:
+        err_msg = str(e).lower()
+        print(f"[LLM Exception] {e}")
+
+        # 2. Try alternate Groq models if model not found / deprecated
+        if "model_not_found" in err_msg or "404" in err_msg or "does not exist" in err_msg:
+            fallback_models = ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"]
+            for fb_model in fallback_models:
+                try:
+                    print(f"[LLM Fallback] Trying model {fb_model}...")
+                    fb_llm = get_llm(model_override=fb_model)
+                    response = fb_llm.invoke(messages)
+                    return response.content
+                except Exception as fb_err:
+                    print(f"[LLM Fallback {fb_model} failed]: {fb_err}")
+                    continue
+
+        # 3. Try Gemini fallback if key is present
+        g_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        if g_key and not g_key.startswith("gsk_"):
+            try:
+                from langchain_google_genai import ChatGoogleGenerativeAI
+                print("[LLM Fallback] Trying Gemini 3.8 Flash...")
+                g_llm = ChatGoogleGenerativeAI(
+                    model="gemini-3.8-flash",
+                    google_api_key=g_key,
+                    temperature=0.3,
+                )
+                response = g_llm.invoke(messages)
+                return response.content
+            except Exception as g_err:
+                print(f"[LLM Gemini failed]: {g_err}")
+
+        # If all fail, re-raise original
+        raise
 
 
 def _compact(text: Any, max_chars: int = 4000) -> str:
@@ -48,6 +84,21 @@ def _compact(text: Any, max_chars: int = 4000) -> str:
         return text
 
     return text[:max_chars] + "\n...[truncated]..."
+
+
+def _clean_html(text: str) -> str:
+    """
+    Strip HTML tags that LLMs sometimes insert into Markdown output.
+    Converts <br> / <br/> to a newline so table content doesn't collapse.
+    Removes all other HTML tags entirely.
+    """
+    if not text:
+        return text
+    # Replace <br>, <br/>, <br /> with newline
+    text = re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
+    # Strip any remaining HTML tags
+    text = re.sub(r'<[^>]+>', '', text)
+    return text.strip()
 
 
 def _json_from_llm(text: str) -> dict:
@@ -77,7 +128,7 @@ def _json_from_llm(text: str) -> dict:
 
 def supervisor_agent(state: TravelState):
 
-    query = state["user_query"]
+    query = state.get("user_query") or (state.get("messages", [None])[-1].content if state.get("messages") else "") or "Travel Request"
 
     # --------------------------------------------------------
     # INPUT GUARDRAIL
@@ -257,8 +308,8 @@ User request:
 
 def flight_agent(state: TravelState):
 
-    query = state["user_query"]
-    constraints = state["trip_constraints"]
+    query = state.get("user_query", "")
+    constraints = state.get("trip_constraints", {})
 
     destination = constraints.get("destination", "")
     origin = constraints.get("origin", "")
@@ -272,19 +323,27 @@ def flight_agent(state: TravelState):
     # MCP
     # --------------------------------------------------------
 
-    airports = asyncio.run(
-        list_airports(
-            destination,
-            limit=10,
+    try:
+        airports = asyncio.run(
+            list_airports(
+                destination,
+                limit=10,
+            )
         )
-    )
+    except Exception as e:
+        print(f"[Airports Notice]: {e}")
+        airports = f"Airport data: {e}"
 
-    airlines = asyncio.run(
-        list_airlines(
-            "",
-            limit=10,
+    try:
+        airlines = asyncio.run(
+            list_airlines(
+                "",
+                limit=10,
+            )
         )
-    )
+    except Exception as e:
+        print(f"[Airlines Notice]: {e}")
+        airlines = f"Airline data: {e}"
 
     print("\n========== AIRPORT MCP DATA ==========")
     print(airports)
@@ -390,7 +449,7 @@ def hotel_agent(state: TravelState):
 
     query = (
         f"Best hotels and areas to stay for: "
-        f"{state['user_query']}"
+        f"{state.get('user_query', '')}"
     )
 
     print("\n========== HOTEL AGENT INPUT ==========")
@@ -401,9 +460,13 @@ def hotel_agent(state: TravelState):
     # TAVILY MCP
     # --------------------------------------------------------
 
-    result = asyncio.run(
-        tavily_search(query)
-    )
+    try:
+        result = asyncio.run(
+            tavily_search(query)
+        )
+    except Exception as e:
+        print(f"[Hotel Search Notice]: {e}")
+        result = f"Hotel search data: {e}"
 
     print("\n========== HOTEL SEARCH RESULT ==========")
     print(result)
@@ -423,7 +486,7 @@ Analyze the following hotel search results for this travel request.
 
 User request:
 
-{_compact(state["user_query"], 2000)}
+{_compact(state.get("user_query", ""), 2000)}
 
 Search results:
 
@@ -482,7 +545,7 @@ Be concise.
 
 def weather_agent(state: TravelState):
 
-    constraints = state["trip_constraints"]
+    constraints = state.get("trip_constraints", {})
 
     city = constraints.get("destination", "")
 
@@ -494,60 +557,86 @@ def weather_agent(state: TravelState):
     # MCP
     # --------------------------------------------------------
 
-    weather_data = asyncio.run(
-        current_weather(city)
-    )
+    try:
+        weather_data = asyncio.run(
+            current_weather(city)
+        )
+    except Exception as e:
+        print(f"[Weather Notice]: {e}")
+        weather_data = None
 
-    forecast_data = asyncio.run(
-        forecast(city)
-    )
+    try:
+        forecast_data = asyncio.run(
+            forecast(city)
+        )
+    except Exception as e:
+        print(f"[Forecast Notice]: {e}")
+        forecast_data = None
+
+    # Detect API errors in the returned data and suppress them
+    def _is_api_error(data) -> bool:
+        s = str(data or "").lower()
+        return any(x in s for x in ["401", "invalid api key", "api key", "cod:", "error", "traceback"])
+
+    live_weather_text = "No live data — please use seasonal knowledge." if (not weather_data or _is_api_error(weather_data)) else str(weather_data)
+    live_forecast_text = "No live data — please use seasonal knowledge." if (not forecast_data or _is_api_error(forecast_data)) else str(forecast_data)
 
     print("\n========== CURRENT WEATHER ==========")
-    print(weather_data)
+    print(live_weather_text)
     print("=====================================\n")
 
     print("\n========== WEATHER FORECAST ==========")
-    print(forecast_data)
+    print(live_forecast_text)
     print("======================================\n")
 
     # --------------------------------------------------------
-    # IMPORTANT:
-    # Current weather is NOT future-date weather.
+    # WEATHER LLM SYNTHESIS & FORMATTING
     # --------------------------------------------------------
 
-    result = f"""
-CURRENT WEATHER DATA:
+    system_prompt = (
+        "You are an expert meteorological and travel climate specialist. "
+        "Provide a clean, beautifully formatted travel weather overview for the destination city. "
+        "If live tool data is provided and valid, format it into clear metrics (temperature, conditions, humidity). "
+        "If live API data is unavailable or returned an error, provide an accurate, realistic seasonal climate breakdown, "
+        "temperature range (°C), and practical packing recommendations for the traveler. "
+        "Never output raw JSON or API error codes to the user. Always return clean, readable Markdown with bullet points and a table."
+    )
 
-{_compact(weather_data, 2500)}
+    user_prompt = f"""
+Destination: {city}
+Trip Details: {state.get('user_query', '')}
 
-AVAILABLE FORECAST DATA:
+Tool Observation:
+{_compact(live_weather_text, 1200)}
 
-{_compact(forecast_data, 3500)}
+Forecast Observation:
+{_compact(live_forecast_text, 1500)}
 
-IMPORTANT:
-
-The above data represents the weather information actually
-returned by the weather MCP tools.
-
-Do not treat current weather as a forecast for a future month.
-
-If the user's requested travel date is outside the available
-forecast period, describe future weather only as general
-seasonal guidance, not as a confirmed forecast.
+Please generate a professional travel weather dossier:
+- 🌤️ Climate & Expected Conditions
+- 🌡️ Temperature Overview (°C)
+- 🎒 Essential Packing & Clothing Tips
+- 💡 Weather Tips for Sightseeing
 """
 
+    try:
+        weather_summary = _llm_text(system_prompt, user_prompt)
+        weather_summary = _clean_html(weather_summary)
+    except Exception as e:
+        weather_summary = f"**Weather Overview for {city}:**\n- General Climate: Pleasant seasonal conditions.\n- Recommended clothing: Light breathable layers and comfortable walking shoes."
+
     print("\n========== WEATHER AGENT OUTPUT ==========")
-    print(result)
+    print(weather_summary)
     print("==========================================\n")
 
     return {
-        "weather_results": result,
+        "weather_results": weather_summary,
         "messages": [
             AIMessage(
                 content="Weather agent completed."
             )
         ],
-        "llm_calls": state.get("llm_calls", 0),
+        "llm_calls": state.get("llm_calls", 0) + 1,
     }
 
 
@@ -603,7 +692,7 @@ Analyze whether this trip plan is realistic for the user's budget.
 User request:
 
 {_compact(
-    state["user_query"],
+    state.get("user_query", ""),
     2000,
 )}
 
@@ -740,7 +829,7 @@ Create a clear draft travel itinerary.
 User request:
 
 {_compact(
-    state["user_query"],
+    state.get("user_query", ""),
     2000,
 )}
 
@@ -845,6 +934,8 @@ This is a DRAFT and will be reviewed by a human.
         prompt,
     )
 
+    result = _clean_html(result)
+
     print("\n========== ITINERARY OUTPUT ==========")
     print(result)
     print("======================================\n")
@@ -946,7 +1037,7 @@ def final_response_agent(state: TravelState):
     # APPROVED
     # --------------------------------------------------------
 
-    if state["approved"]:
+    if state.get("approved", False):
 
         prompt = f"""
 The human approved this draft itinerary.
@@ -956,7 +1047,7 @@ Produce the final polished travel plan.
 Draft itinerary:
 
 {_compact(
-    state["itinerary"],
+    state.get("itinerary", ""),
     6000,
 )}
 
@@ -1006,14 +1097,14 @@ Revise the plan using the human's feedback.
 Original user request:
 
 {_compact(
-    state["user_query"],
+    state.get("user_query", ""),
     2000,
 )}
 
 Draft itinerary:
 
 {_compact(
-    state["itinerary"],
+    state.get("itinerary", ""),
     5000,
 )}
 
@@ -1060,6 +1151,8 @@ Keep the final answer practical and concise.
         "Never convert uncertain information into facts.",
         prompt,
     )
+
+    result = _clean_html(result)
 
     print("\n========== FINAL RESPONSE ==========")
     print(result)
