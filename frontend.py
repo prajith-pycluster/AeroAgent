@@ -1,6 +1,7 @@
-import uuid
-import time
+import os
 import re
+import time
+import uuid
 import streamlit as st
 
 from langchain_core.messages import HumanMessage
@@ -9,8 +10,15 @@ from langgraph.types import Command
 from graph import app
 
 
+# ============================================================
+# MARKDOWN & TAG SANITIZATION HELPER
+# ============================================================
+
 def _clean_md(text: str) -> str:
-    """Strip HTML tags (especially <br>) that LLMs insert into Markdown."""
+    """
+    Strip HTML tags (especially <br>) that LLMs frequently insert
+    into Markdown table cells so they render natively without glitching.
+    """
     if not text:
         return text
     text = re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
@@ -19,29 +27,29 @@ def _clean_md(text: str) -> str:
 
 
 # ============================================================
-# PAGE CONFIG & ENFORCE LIGHT THEME
+# PAGE CONFIGURATION - TEVELO BRANDING & FULL WIDTH
 # ============================================================
 
 st.set_page_config(
-    page_title="AeroAgent • AI Travel Command Center",
+    page_title="Tevelo • Intelligent Travel, Effortlessly Planned",
     page_icon="✈️",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
     menu_items={
-        "Get Help": "https://github.com",
-        "Report a bug": "https://github.com",
-        "About": "AeroAgent - Multi-Agent AI Travel Planning System",
+        "Get Help": "https://github.com/prajith-pycluster/AeroAgent",
+        "Report a bug": "https://github.com/prajith-pycluster/AeroAgent/issues",
+        "About": "Tevelo — Autonomous Multi-Agent AI Travel Intelligence Platform",
     },
 )
 
 
 # ============================================================
-# PURE WHITE MODE CUSTOM CSS
+# TEVELO PREMIUM DESIGN SYSTEM - PURE LIGHT / WHITE THEME
 # ============================================================
 
 custom_css = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap');
 
 :root {
     --bg-main: #ffffff;
@@ -55,66 +63,70 @@ custom_css = """
     --primary: #2563eb;
     --primary-hover: #1d4ed8;
     --primary-light: #eff6ff;
+    --primary-border: #bfdbfe;
     --success: #10b981;
     --success-light: #ecfdf5;
-    --accent-orange: #f97316;
+    --success-border: #a7f3d0;
+    --accent-indigo: #4f46e5;
 }
 
-/* Base typography & pure white background */
+/* 1. COMPLETELY HIDE STREAMLIT SIDEBAR AND TOGGLE */
+[data-testid="stSidebar"],
+[data-testid="collapsedControl"],
+section[data-testid="stSidebar"] {
+    display: none !important;
+    visibility: hidden !important;
+    width: 0 !important;
+}
+
+/* 2. BASE APP CONTAINER & TYPOGRAPHY */
 html, body, [data-testid="stAppViewContainer"], .stApp {
     background-color: #ffffff !important;
     color: var(--text-primary) !important;
-    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-family: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
 [data-testid="stHeader"] {
-    background: rgba(255, 255, 255, 0.9) !important;
+    background: rgba(255, 255, 255, 0.95) !important;
     backdrop-filter: blur(12px) !important;
     border-bottom: 1px solid var(--border-subtle);
 }
 
-/* Sidebar in Clean White Mode */
-[data-testid="stSidebar"] {
-    background-color: #fafbfc !important;
-    border-right: 1px solid var(--border-subtle) !important;
+.main .block-container {
+    max-width: 1200px !important;
+    padding-top: 1.5rem !important;
+    padding-bottom: 3.5rem !important;
+    padding-left: 2rem !important;
+    padding-right: 2rem !important;
 }
 
-[data-testid="stSidebar"] * {
-    color: var(--text-primary);
-}
-
-[data-testid="stSidebar"] .stMarkdown p,
-[data-testid="stSidebar"] .stMarkdown span {
-    color: var(--text-secondary);
-}
-
-/* Headers */
-h1, h2, h3, h4 {
+/* 3. HEADINGS HIERARCHY */
+h1, h2, h3, h4, h5 {
     color: var(--text-primary) !important;
     font-weight: 700 !important;
     letter-spacing: -0.025em !important;
 }
 
 h1 {
-    font-size: 2.35rem !important;
+    font-size: 2.4rem !important;
     line-height: 1.2 !important;
 }
 
 h2 {
-    font-size: 1.65rem !important;
-    margin-top: 1.5rem !important;
-    margin-bottom: 0.75rem !important;
+    font-size: 1.6rem !important;
+    margin-top: 1.25rem !important;
+    margin-bottom: 0.5rem !important;
 }
 
 h3 {
     font-size: 1.15rem !important;
 }
 
-/* Buttons */
+/* 4. BUTTONS - CLEAN, ROUNDED & PROPORTIONATE */
 .stButton > button {
     border-radius: 12px !important;
     font-weight: 600 !important;
-    font-size: 0.95rem !important;
+    font-size: 0.925rem !important;
     padding: 0.55rem 1.25rem !important;
     border: 1px solid var(--border-subtle) !important;
     background: #ffffff !important;
@@ -127,11 +139,11 @@ h3 {
     border-color: var(--border-strong) !important;
     background: var(--bg-secondary) !important;
     transform: translateY(-1px) !important;
-    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.06) !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06) !important;
     color: var(--primary) !important;
 }
 
-/* Primary Button */
+/* Primary Button Styling */
 [data-testid="stBaseButton-primary"] > button,
 button[kind="primary"] {
     background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important;
@@ -148,13 +160,13 @@ button[kind="primary"]:hover {
     transform: translateY(-2px) !important;
 }
 
-/* Inputs & Textareas */
+/* 5. FORM INPUTS & TEXTAREAS */
 .stTextInput input,
 .stTextArea textarea {
     background-color: #ffffff !important;
     border: 1.5px solid var(--border-subtle) !important;
-    border-radius: 12px !important;
-    padding: 12px 14px !important;
+    border-radius: 14px !important;
+    padding: 14px 16px !important;
     color: var(--text-primary) !important;
     font-size: 0.975rem !important;
     transition: all 0.2s ease !important;
@@ -168,12 +180,12 @@ button[kind="primary"]:hover {
     outline: none !important;
 }
 
-/* Metric Cards */
+/* 6. METRIC CARDS */
 [data-testid="stMetric"] {
     background: #ffffff !important;
     border: 1px solid var(--border-subtle) !important;
     border-radius: 14px !important;
-    padding: 0.85rem 1rem !important;
+    padding: 0.9rem 1.15rem !important;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03) !important;
     transition: all 0.2s ease !important;
 }
@@ -194,15 +206,13 @@ button[kind="primary"]:hover {
 [data-testid="stMetricValue"],
 [data-testid="stMetricValue"] * {
     color: var(--text-primary) !important;
-    font-size: clamp(1rem, 1.25vw, 1.28rem) !important;
+    font-size: clamp(1rem, 1.2vw, 1.25rem) !important;
     font-weight: 800 !important;
     letter-spacing: -0.01em !important;
     white-space: nowrap !important;
-    overflow: visible !important;
-    text-overflow: clip !important;
 }
 
-/* Containers with Border (Card Style) */
+/* 7. CARDS & BORDERED CONTAINERS */
 div[data-testid="stVerticalBlock"] > div[data-testid="stVerticalBlockBorderWrapper"] {
     background: #ffffff !important;
     border-radius: 16px !important;
@@ -213,48 +223,29 @@ div[data-testid="stVerticalBlock"] > div[data-testid="stVerticalBlockBorderWrapp
 }
 
 div[data-testid="stVerticalBlock"] > div[data-testid="stVerticalBlockBorderWrapper"]:hover {
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.05) !important;
+    border-color: var(--border-strong) !important;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.04) !important;
 }
 
-/* Images */
+/* 8. IMAGES */
 [data-testid="stImage"] img {
-    border-radius: 12px !important;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06) !important;
+    border-radius: 16px !important;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.05) !important;
 }
 
-/* Dividers */
-hr {
-    border-color: var(--border-subtle) !important;
-    margin: 1.75rem 0 !important;
-    opacity: 0.8 !important;
-}
-
-/* Pill Tags & Chips */
-.hero-tag {
+/* 9. BADGES & CHIPS */
+.brand-pill {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 5px 12px;
+    gap: 8px;
+    padding: 6px 14px;
     background: #eff6ff;
     color: #1d4ed8;
     border: 1px solid #bfdbfe;
     border-radius: 9999px;
     font-size: 0.825rem;
     font-weight: 600;
-    margin-bottom: 0.75rem;
-}
-
-.system-status-chip {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 8px 12px;
-    background: #ffffff;
-    border: 1px solid #e2e8f0;
-    border-radius: 10px;
-    margin-bottom: 6px;
-    font-size: 0.85rem;
-    font-weight: 500;
+    margin-bottom: 0.85rem;
 }
 
 .status-dot {
@@ -271,7 +262,7 @@ hr {
     align-items: center;
     padding: 4px 10px;
     border-radius: 6px;
-    font-size: 0.785rem;
+    font-size: 0.775rem;
     font-weight: 700;
     letter-spacing: 0.03em;
     text-transform: uppercase;
@@ -283,18 +274,43 @@ hr {
 .badge-budget { background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; }
 .badge-agent { background: #eef2ff; color: #4f46e5; border: 1px solid #c7d2fe; }
 
-/* Radio buttons & Checkboxes */
-.stRadio > div {
-    gap: 12px;
-}
-
-/* Alerts & Notices */
-.stAlert {
-    border-radius: 12px !important;
+/* 10. POPOVER (SETTINGS & PREFERENCES) */
+[data-testid="stPopover"] > button {
+    border-radius: 9999px !important;
+    padding: 0.4rem 1rem !important;
+    font-size: 0.85rem !important;
     border: 1px solid var(--border-subtle) !important;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02) !important;
+    background: #ffffff !important;
 }
 
+/* 11. DIVIDERS */
+hr {
+    border-color: var(--border-subtle) !important;
+    margin: 2rem 0 !important;
+    opacity: 0.75 !important;
+}
+
+/* 12. TAB NAVIGATION */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 8px;
+    background-color: #f8fafc;
+    padding: 6px;
+    border-radius: 12px;
+    border: 1px solid var(--border-subtle);
+}
+
+.stTabs [data-baseweb="tab"] {
+    border-radius: 8px !important;
+    padding: 8px 16px !important;
+    font-weight: 600 !important;
+    color: var(--text-secondary) !important;
+}
+
+.stTabs [aria-selected="true"] {
+    background-color: #ffffff !important;
+    color: var(--primary) !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05) !important;
+}
 </style>
 """
 
@@ -340,11 +356,14 @@ IMAGES = {
 
 
 # ============================================================
-# SESSION STATE INITIALIZATION
+# SESSION STATE INITIALIZATION (PRESERVING BACKEND VALUES)
 # ============================================================
 
+if "user_id" not in st.session_state:
+    st.session_state.user_id = "traveler_001"
+
 if "thread_id" not in st.session_state:
-    st.session_state.thread_id = None
+    st.session_state.thread_id = f"{st.session_state.user_id}_{uuid.uuid4().hex[:8]}"
 
 if "latest_result" not in st.session_state:
     st.session_state.latest_result = None
@@ -358,145 +377,131 @@ if "agent_progress" not in st.session_state:
 if "query_input" not in st.session_state:
     st.session_state.query_input = ""
 
+user_id = st.session_state.user_id
+
 
 # ============================================================
-# SIDEBAR - PURE WHITE COMMAND CENTER
+# TOP NAVIGATION & BRAND IDENTITY BAR
 # ============================================================
 
-with st.sidebar:
+nav_col1, nav_col2, nav_col3 = st.columns([1.8, 2, 1.2], gap="small")
+
+with nav_col1:
     st.markdown(
         """
-        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 0.25rem;">
+        <div style="display: flex; align-items: center; gap: 12px; padding: 4px 0;">
             <div style="
                 background: linear-gradient(135deg, #2563eb, #1d4ed8);
                 color: white;
-                width: 36px;
-                height: 36px;
+                width: 38px;
+                height: 38px;
                 border-radius: 10px;
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                font-size: 1.2rem;
-                box-shadow: 0 4px 10px rgba(37,99,235,0.25);
+                font-size: 1.25rem;
+                box-shadow: 0 4px 10px rgba(37,99,235,0.22);
             ">✈️</div>
             <div>
-                <h2 style="font-size: 1.25rem; margin: 0; font-weight: 800; color: #0f172a;">AeroAgent</h2>
-                <span style="font-size: 0.75rem; color: #64748b; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">AI Mission Control</span>
+                <div style="font-size: 1.35rem; font-weight: 800; color: #0f172a; line-height: 1.1; letter-spacing: -0.02em;">Tevelo</div>
+                <div style="font-size: 0.725rem; color: #64748b; font-weight: 600; letter-spacing: 0.02em;">Intelligent Travel, Effortlessly Planned</div>
             </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    st.caption("Autonomous multi-agent system coordinating flights, accommodations, weather & budgets.")
-
-    st.divider()
-
-    # Session Management
-    st.markdown("#### 👤 Traveler Identity")
-
-    user_id = st.text_input(
-        "Traveler ID",
-        value="traveler_001",
-        key="user_id_input",
-        help="Unique identifier for persistent state storage",
+with nav_col2:
+    st.markdown(
+        """
+        <div style="display: flex; align-items: center; justify-content: center; gap: 24px; height: 100%; font-size: 0.9rem; font-weight: 600;">
+            <span style="color: #2563eb; border-bottom: 2px solid #2563eb; padding-bottom: 2px;">Home</span>
+            <span style="color: #64748b; cursor: default;">Explore</span>
+            <span style="color: #64748b; cursor: default;">My Trips</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
-    if st.session_state.thread_id is None:
-        st.session_state.thread_id = f"{user_id}_{uuid.uuid4().hex[:8]}"
+with nav_col3:
+    # PRESERVED CONTROLS: Model, Traveler ID, New Trip & Reset in clean popover
+    with st.popover("⚙️ Settings & System", use_container_width=True):
+        st.markdown("##### 👤 Traveler Profile")
+        new_uid = st.text_input(
+            "Traveler ID",
+            value=st.session_state.user_id,
+            key="user_id_pref",
+            help="Unique identifier for state persistence",
+        )
+        if new_uid != st.session_state.user_id:
+            st.session_state.user_id = new_uid
+            user_id = new_uid
 
-    col_btn1, col_btn2 = st.columns(2)
-    with col_btn1:
-        if st.button("🆕 New Trip", use_container_width=True):
-            st.session_state.thread_id = f"{user_id}_{uuid.uuid4().hex[:8]}"
-            st.session_state.latest_result = None
-            st.session_state.waiting_for_approval = False
-            st.session_state.query_input = ""
-            st.rerun()
+        st.markdown("##### 🧠 AI Reasoning Engine")
+        selected_model_option = st.selectbox(
+            "Active Model",
+            [
+                "openai/gpt-oss-120b (Groq Flagship)",
+                "openai/gpt-oss-20b (Groq Fast)",
+                "qwen/qwen3.8-27b (Groq Qwen)",
+                "gemini-3.8-flash (Google Gemini)",
+            ],
+            index=0,
+            help="Select which LLM model powers the multi-agent workflow",
+        )
+        chosen_model_id = selected_model_option.split(" ")[0]
+        os.environ["GROQ_MODEL"] = chosen_model_id
+        if "gemini" in chosen_model_id:
+            os.environ["GEMINI_MODEL"] = chosen_model_id
 
-    with col_btn2:
-        if st.button("🔄 Reset", use_container_width=True):
-            st.session_state.clear()
-            st.rerun()
+        st.divider()
 
-    st.divider()
-
-    # Model Engine Selection
-    st.markdown("#### 🧠 AI Reasoning Engine")
-    selected_model_option = st.selectbox(
-        "Active Model",
-        [
-            "openai/gpt-oss-120b (Groq Flagship)",
-            "openai/gpt-oss-20b (Groq Fast)",
-            "qwen/qwen3.8-27b (Groq Qwen)",
-            "gemini-3.8-flash (Google Gemini)",
-        ],
-        index=0,
-        help="Select which LLM model powers the multi-agent workflow",
-    )
-    chosen_model_id = selected_model_option.split(" ")[0]
-    import os
-    os.environ["GROQ_MODEL"] = chosen_model_id
-    if "gemini" in chosen_model_id:
-        os.environ["GEMINI_MODEL"] = chosen_model_id
-
-    st.divider()
-
-    # System Diagnostics (White Mode Card)
-    st.markdown("#### ⚙️ System Diagnostics")
-
-    system_metrics = [
-        ("Multi-Agent Graph", "Active", "🟢"),
-        ("LLM Inference", "Gemini / Groq", "⚡"),
-        ("MCP Tool Layer", "Connected", "🔌"),
-        ("Checkpoint Engine", "Memory / PG", "💾"),
-        ("Human Approval Loop", "Armed", "🛡️"),
-    ]
-
-    for label, status, icon in system_metrics:
         st.markdown(
             f"""
-            <div class="system-status-chip">
-                <span style="color: #334155;">{icon} {label}</span>
-                <span style="color: #059669; font-weight: 600; font-size: 0.785rem; background: #ecfdf5; padding: 2px 8px; border-radius: 9999px; border: 1px solid #a7f3d0;">{status}</span>
+            <div style="font-size: 0.775rem; color: #64748b; margin-bottom: 8px;">
+                <strong>Session Thread:</strong><br>
+                <code style="color: #2563eb; background: #eff6ff; padding: 2px 6px; border-radius: 4px;">{st.session_state.thread_id}</code>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
-    st.divider()
+        p_btn1, p_btn2 = st.columns(2)
+        with p_btn1:
+            if st.button("🆕 New Trip", use_container_width=True):
+                st.session_state.thread_id = f"{user_id}_{uuid.uuid4().hex[:8]}"
+                st.session_state.latest_result = None
+                st.session_state.waiting_for_approval = False
+                st.session_state.query_input = ""
+                st.rerun()
+        with p_btn2:
+            if st.button("🔄 Reset", use_container_width=True):
+                st.session_state.clear()
+                st.rerun()
 
-    st.markdown(
-        f"""
-        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; font-size: 0.8rem; color: #64748b;">
-            <strong style="color: #0f172a;">Active Thread:</strong><br>
-            <code style="color: #2563eb; background: #eff6ff; padding: 2px 6px; border-radius: 4px; font-size: 0.75rem;">{st.session_state.thread_id}</code>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+st.divider()
 
 
 # ============================================================
-# HERO SECTION - MODERN CLEAN LANDING
+# HERO SECTION - CENTERED, ELEGANT & BALANCED
 # ============================================================
 
-hero_left, hero_right = st.columns([1.6, 1], gap="large")
+hero_left, hero_right = st.columns([1.5, 1.1], gap="large")
 
 with hero_left:
     st.markdown(
         """
-        <div class="hero-tag">
-            <span class="status-dot"></span> Production Multi-Agent Architecture
+        <div class="brand-pill">
+            <span class="status-dot"></span> Autonomous Multi-Agent Travel Platform
         </div>
-        <h1 style="color: #0f172a; margin-bottom: 0.75rem;">
-            Where would you like to travel? <br>
-            <span style="background: linear-gradient(135deg, #2563eb, #3b82f6); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
-                Planned by Autonomous Agents.
-            </span>
+        <h1 style="color: #0f172a; margin-bottom: 0.6rem;">
+            Where would you like to travel?
         </h1>
-        <p style="color: #475569; font-size: 1.05rem; line-height: 1.6; margin-bottom: 1.25rem;">
-            Instead of a single AI prompt, AeroAgent coordinates specialized agents for flights, hotels, live weather forecasts, and currency-optimized budgets — verified by your captain's approval.
+        <h3 style="color: #2563eb; font-weight: 700; margin-top: 0; margin-bottom: 1rem; font-size: 1.35rem;">
+            Your Journey. Intelligently Planned.
+        </h3>
+        <p style="color: #475569; font-size: 1.05rem; line-height: 1.65; margin-bottom: 1.5rem;">
+            Discover destinations, explore travel possibilities and let intelligent AI agents coordinate your flights, accommodation, weather and budget.
         </p>
         """,
         unsafe_allow_html=True,
@@ -504,31 +509,33 @@ with hero_left:
 
     stat1, stat2, stat3 = st.columns(3)
     with stat1:
-        st.metric(label="AI Agents", value="6 Nodes")
+        st.metric(label="AI AGENTS", value="6 Specialists")
     with stat2:
-        st.metric(label="Tools", value="MCP Live")
+        st.metric(label="TOOL LAYER", value="MCP Live")
     with stat3:
-        st.metric(label="Approval", value="Required")
+        st.metric(label="APPROVAL", value="Human Gate")
 
 with hero_right:
     st.image(
         IMAGES["airplane"],
         use_container_width=True,
-        caption="Real-time multi-agent intelligence at your service",
+        caption="Tevelo • Coordinated Multi-Agent Flight & Stay Synthesis",
     )
 
 st.divider()
 
 
 # ============================================================
-# DESTINATION SHOWCASE & 1-CLICK SELECTORS
+# DESTINATION SHOWCASE & 1-CLICK DISCOVERY
 # ============================================================
 
 st.markdown(
     """
     <div style="text-align: center; margin-bottom: 1.5rem;">
         <h2 style="margin: 0; color: #0f172a;">Explore Top Global Destinations</h2>
-        <p style="color: #64748b; font-size: 0.95rem; margin-top: 0.25rem;">Click any destination to pre-fill your journey plan instantly</p>
+        <p style="color: #64748b; font-size: 0.95rem; margin-top: 0.25rem;">
+            Select any destination below to immediately load a verified multi-day itinerary template:
+        </p>
     </div>
     """,
     unsafe_allow_html=True,
@@ -557,7 +564,7 @@ for col, (flag, name, country, img_key, prompt_text) in zip(dest_cols, destinati
                 """,
                 unsafe_allow_html=True,
             )
-            if st.button(f"Select {name}", key=f"dest_btn_{name}", use_container_width=True):
+            if st.button(f"Explore {name}", key=f"dest_btn_{name}", use_container_width=True):
                 st.session_state.query_input = prompt_text
                 st.rerun()
 
@@ -565,7 +572,7 @@ st.divider()
 
 
 # ============================================================
-# TRIP CUSTOMIZER & SMART INPUT SECTION
+# CUSTOM TRAVEL REQUEST (SECTION 7)
 # ============================================================
 
 st.markdown("## 🎯 Custom Travel Request")
@@ -646,7 +653,7 @@ with btn_col2:
 
 
 # ============================================================
-# WORKFLOW EXECUTION
+# AGENT EXECUTION INTERFACE (SECTION 8)
 # ============================================================
 
 if launch_button:
@@ -658,9 +665,16 @@ if launch_button:
         with progress_placeholder.container():
             st.markdown(
                 """
-                <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 1.25rem; margin: 1rem 0;">
-                    <h3 style="margin: 0 0 0.5rem 0; color: #0f172a;">🤖 AI Multi-Agent Swarm Orchestrating...</h3>
-                    <p style="color: #64748b; font-size: 0.9rem; margin: 0 0 1rem 0;">Decomposing your itinerary across autonomous specialist agents</p>
+                <div style="background: #ffffff; border: 1px solid #bfdbfe; border-radius: 14px; padding: 1.25rem; margin: 1rem 0;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <span style="font-size: 1.4rem;">🤖</span>
+                        <div>
+                            <h3 style="margin: 0; color: #1e40af;">Tevelo Multi-Agent Swarm Orchestrating...</h3>
+                            <p style="color: #3b82f6; font-size: 0.875rem; margin: 2px 0 0 0;">
+                                Coordinating autonomous specialist nodes through LangGraph and Model Context Protocol
+                            </p>
+                        </div>
+                    </div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -669,12 +683,12 @@ if launch_button:
             progress_bar = st.progress(0)
 
             agents_pipeline = [
-                ("🧠", "Supervisor Agent", "Decomposing mission & assigning tools"),
-                ("✈️", "Flight Agent", "Searching routes & flight schedules"),
-                ("🏨", "Hotel Agent", "Analyzing accommodations & ratings"),
-                ("🌤️", "Weather Agent", "Querying 5-day meteorology forecast"),
-                ("💰", "Budget Agent", "Optimizing expense breakdown & currency"),
-                ("🗺️", "Itinerary Agent", "Synthesizing day-by-day travel blueprint"),
+                ("🧠", "Supervisor Agent", "Decomposing mission & extracting constraints"),
+                ("✈️", "Flight Agent", "Analyzing flight corridors & schedules via Aviation MCP"),
+                ("🏨", "Hotel Agent", "Filtering accommodations & districts via Tavily Search"),
+                ("🌤️", "Weather Agent", "Querying 5-day meteorological guidance"),
+                ("💰", "Budget Agent", "Auditing expenses, reserves & feasibility"),
+                ("🗺️", "Itinerary Agent", "Synthesizing chronological master draft"),
             ]
 
             for idx, (icon, agent, task) in enumerate(agents_pipeline):
@@ -872,13 +886,13 @@ if result:
         with st.container(border=True):
             st.markdown(
                 """
-                <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 12px; padding: 1rem; margin-bottom: 1rem;">
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <span style="font-size: 1.3rem;">🛡️</span>
+                <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 12px; padding: 1.15rem; margin-bottom: 1rem;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <span style="font-size: 1.4rem;">🛡️</span>
                         <div>
-                            <strong style="color: #1e40af;">Human-in-the-Loop Verification Required</strong>
-                            <p style="margin: 0; color: #3b82f6; font-size: 0.875rem;">
-                                The multi-agent workflow has crafted this draft plan. Please approve or submit requested modifications before final execution.
+                            <strong style="color: #1e40af; font-size: 1rem;">Human-in-the-Loop Decision Required</strong>
+                            <p style="margin: 2px 0 0 0; color: #3b82f6; font-size: 0.875rem;">
+                                The multi-agent workflow has synthesized this draft plan. Please verify and approve or submit custom adjustments before final execution.
                             </p>
                         </div>
                     </div>
@@ -961,7 +975,7 @@ if result:
 
 
 # ============================================================
-# FINAL RESPONSE & DOWNLOAD
+# FINAL RESPONSE & DOSSIER EXPORT (SECTION 10)
 # ============================================================
 
 final_result = st.session_state.get("latest_result")
@@ -969,7 +983,7 @@ final_result = st.session_state.get("latest_result")
 if final_result and final_result.get("final_response"):
     st.divider()
     st.markdown("## ✨ Final Approved Travel Plan")
-    st.success("🎉 Your mission is verified and complete! Safe travels!")
+    st.success("🎉 Your travel plan is verified and complete! Safe travels!")
 
     with st.container(border=True):
         st.markdown(_clean_md(final_result["final_response"]))
@@ -979,7 +993,7 @@ if final_result and final_result.get("final_response"):
         st.download_button(
             label="📥 Download Travel Dossier (.txt)",
             data=_clean_md(final_result["final_response"]),
-            file_name="AeroAgent_Travel_Plan.txt",
+            file_name="Tevelo_Travel_Dossier.txt",
             mime="text/plain",
             use_container_width=True,
         )
@@ -991,7 +1005,7 @@ if final_result and final_result.get("final_response"):
         st.markdown(
             """
             <div style="text-align: center; padding-top: 0.5rem; color: #059669; font-weight: 600; font-size: 0.9rem;">
-                ✓ Ready for Departure
+                ✓ Verified by Tevelo Intelligence
             </div>
             """,
             unsafe_allow_html=True,
@@ -999,7 +1013,7 @@ if final_result and final_result.get("final_response"):
 
 
 # ============================================================
-# MODERN FOOTER
+# MODERN TEVELO FOOTER
 # ============================================================
 
 st.divider()
@@ -1008,10 +1022,10 @@ st.markdown(
     """
     <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; padding: 0.5rem 0; color: #64748b; font-size: 0.85rem;">
         <div>
-            <strong style="color: #0f172a;">✈️ AeroAgent Command Center</strong> — Built with LangGraph • LangChain • Gemini / Groq • Streamlit • MCP
+            <strong style="color: #0f172a;">✈️ Tevelo</strong> — Intelligent Travel, Effortlessly Planned
         </div>
         <div>
-            🔒 End-to-End Privacy • 🌍 195+ Countries Covered • ⚡ Autonomous Tool Calling
+            🔒 End-to-End Privacy • 🌍 195+ Countries Covered • ⚡ Multi-Agent MCP Orchestration
         </div>
     </div>
     """,
